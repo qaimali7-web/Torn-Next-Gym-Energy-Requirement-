@@ -14,24 +14,20 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js
 // ==/UserScript==
 
-/* globals jQuery, $ */
 
 (function() {
     'use strict';
 
     function log(msg) { console.log(`[TornGymCalc] ${msg}`); }
 
-    // --- Config ---
     const GYM_ENERGIES = [
         200, 500, 1000, 2000, 2750, 3000, 3500, 4000, 6000, 7000, 8000,
         11000, 12420, 18000, 18100, 24140, 31260, 36610, 46640, 56520, 67775, 84535, 106305
     ];
 
-    // --- State ---
     let apiKey = GM_getValue('qaim_torn_api_key', '');
     let userData = { perkMultiplier: 1.0, dailyEnergy: 1470, hasMusicStore: false, isLoaded: false };
 
-    // --- CSS ---
     const styles = `
         /* The Main Bar */
         .qaim-gym-bar {
@@ -197,7 +193,6 @@
             if (match && match[1]) gymId = parseInt(match[1], 10);
         }
 
-        // Insert Target: The Container of all gym buttons
         const gymsListContainer = buttonEl.closest('div[class*="gymsList"]');
         const insertTarget = gymsListContainer.length ? gymsListContainer : buttonEl.parent().parent();
 
