@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Gym Energy Calculator
 // @namespace    https://github.com/qaimali7-web
-// @version      1.0
-// @description  Displays gym energy data as a native-style bar with dual teal accents.
+// @version      2.0
+// @description  Displays gym energy detail.
 // @author       Qaim [2370947]
 // @match        https://www.torn.com/gym.php*
 // @license      MIT
@@ -14,6 +14,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js
 // ==/UserScript==
 
+/* globals jQuery, $ */
 
 (function() {
     'use strict';
@@ -27,106 +28,56 @@
 
     let apiKey = GM_getValue('qaim_torn_api_key', '');
     let userData = { perkMultiplier: 1.0, dailyEnergy: 1470, hasMusicStore: false, isLoaded: false };
+    
+    let lastEnergyVal = -1;
+    let localSpentOffset = 0; // Energy spent since last page load/% update
 
     const styles = `
-        /* The Main Bar */
         .qaim-gym-bar {
             background-color: #222;
-            border-left: 6px solid #00bcd4;  /* Left Teal Corner */
-            border-right: 6px solid #00bcd4; /* Right Teal Corner */
+            border-left: 6px solid #00bcd4;
+            border-right: 6px solid #00bcd4;
             border-radius: 5px;
-            margin-top: 10px;
-            margin-bottom: 10px;
-            padding: 0 15px;
-            height: 38px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            color: #fff;
-            font-family: 'Arial', sans-serif;
-            font-size: 14px;
+            margin-top: 10px; margin-bottom: 10px;
+            padding: 8px 15px;
+            min-height: 38px;
+            display: flex; align-items: center; justify-content: space-between;
+            color: #fff; font-family: 'Arial', sans-serif; font-size: 13px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            position: relative;
-            clear: both;
+            position: relative; clear: both;
         }
-
-        /* Left Side: Name and Progress */
-        .qaim-bar-title {
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: #00bcd4;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .qaim-bar-values {
-            color: #ddd;
-            font-weight: 400;
-            font-size: 13px;
-        }
-        .qaim-highlight { color: #fff; font-weight: bold; }
-
-        /* Right Side: Badges and Time */
-        .qaim-bar-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        .qaim-stats-container { display: flex; gap: 20px; align-items: center; }
+        .qaim-stat-group { display: flex; flex-direction: column; }
+        .qaim-label { font-size: 10px; color: #00bcd4; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
+        .qaim-value { font-size: 14px; color: #eee; font-weight: 400; transition: color 0.3s; }
+        .qaim-value.updated { color: #00bcd4; } /* Flash color on update */
+        .qaim-warning { color: #ffca28; font-weight: 600; font-size: 13px; }
+        
+        .qaim-bar-controls { display: flex; align-items: center; gap: 10px; }
         .qaim-badge {
-            background: #444; color: #aaa;
-            padding: 2px 6px; border-radius: 3px;
-            font-size: 10px; text-transform: uppercase;
-            border: 1px solid #555;
-            cursor: default;
+            background: #444; color: #aaa; padding: 2px 6px; border-radius: 3px;
+            font-size: 10px; text-transform: uppercase; border: 1px solid #555; cursor: default;
         }
-        .qaim-badge.active {
-            background: rgba(0, 188, 212, 0.2);
-            color: #00bcd4;
-            border-color: #00bcd4;
-        }
-        .qaim-days {
-            font-size: 12px; color: #999; font-style: italic;
-        }
-
-        /* Settings Icon */
-        .qaim-settings-icon {
-            cursor: pointer; color: #666; font-size: 16px; margin-left: 5px;
-            transition: color 0.2s;
-        }
+        .qaim-badge.active { background: rgba(0, 188, 212, 0.2); color: #00bcd4; border-color: #00bcd4; }
+        
+        .qaim-settings-icon { cursor: pointer; color: #aaa; font-size: 18px; margin-left: 5px; transition: color 0.2s; }
         .qaim-settings-icon:hover { color: #fff; }
 
-        /* Tooltip Input (Non-Intrusive) */
         .qaim-tooltip {
-            position: absolute;
-            top: 45px; right: 0;
-            background: #333;
-            border: 1px solid #555;
-            padding: 10px;
-            border-radius: 4px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            z-index: 1000;
-            display: none;
-            width: 240px;
-        }
-        .qaim-tooltip::after {
-            content: ''; position: absolute; bottom: 100%; right: 10px;
-            border-width: 6px; border-style: solid;
-            border-color: transparent transparent #333 transparent;
+            position: absolute; top: 50px; right: 0;
+            background: #333; border: 1px solid #555; padding: 10px;
+            border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 1000; display: none; width: 240px;
         }
         .qaim-input {
             width: 100%; padding: 5px; margin-bottom: 8px;
-            background: #111; border: 1px solid #444;
-            color: #fff; font-size: 12px; border-radius: 3px;
-            box-sizing: border-box;
+            background: #111; border: 1px solid #444; color: #fff;
+            font-size: 12px; border-radius: 3px; box-sizing: border-box;
         }
         .qaim-save-btn {
-            width: 100%; padding: 4px;
-            background: #00bcd4; color: #111; border: none;
-            font-weight: bold; font-size: 11px; border-radius: 3px;
-            cursor: pointer;
+            width: 100%; padding: 4px; background: #00bcd4; color: #111;
+            border: none; font-weight: bold; font-size: 11px; border-radius: 3px; cursor: pointer;
         }
-        .qaim-save-btn:hover { background: #00acc1; }
     `;
 
     function injectStyles() {
@@ -142,7 +93,6 @@
         return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
 
-    // --- API ---
     function fetchApiData(callback) {
         if (!apiKey) { callback(); return; }
         GM_xmlhttpRequest({
@@ -172,20 +122,16 @@
         });
     }
 
-    // --- Logic ---
     function init() {
         if ($('#QaimGymBar').length > 0) return;
 
-        const percentageEl = Array.from(document.querySelectorAll('[class*="percentage"]'))
-                                  .find(el => el.innerText.includes('%'));
+        // Find hooks
+        const percentageEl = Array.from(document.querySelectorAll('[class*="percentage"]')).find(el => el.innerText.includes('%'));
         if (!percentageEl) return;
-
         const buttonEl = $(percentageEl).closest('button');
         if (!buttonEl.length) return;
 
-        const ariaLabel = buttonEl.attr('aria-label') || "";
-        const gymName = ariaLabel.split('.')[0] || "Current Gym";
-
+        // Extract Gym ID
         let gymId = 0;
         const iconDiv = buttonEl.find('[class*="gym-"]');
         if (iconDiv.length) {
@@ -193,9 +139,7 @@
             if (match && match[1]) gymId = parseInt(match[1], 10);
         }
 
-        const gymsListContainer = buttonEl.closest('div[class*="gymsList"]');
-        const insertTarget = gymsListContainer.length ? gymsListContainer : buttonEl.parent().parent();
-
+        // Determine Total Requirement
         let totalReq = 0;
         if (gymId > 1 && (gymId - 2) < GYM_ENERGIES.length) {
             totalReq = GYM_ENERGIES[gymId - 2];
@@ -203,22 +147,41 @@
 
         injectStyles();
 
+        // Build HTML
+        let contentHTML = '';
+        let controlsHTML = '';
+
+        if (!apiKey) {
+            contentHTML = `<span class="qaim-warning">Enter Public API key & refresh page for details</span>`;
+            controlsHTML = `<div class="qaim-settings-icon" id="qaim-settings-trigger" title="Enter API Key">⚙</div>`;
+        } else {
+            contentHTML = `
+                <div class="qaim-stats-container">
+                    <div class="qaim-stat-group">
+                        <span class="qaim-label">Next Gym Req</span>
+                        <span class="qaim-value" id="qaim-req">---</span>
+                    </div>
+                    <div class="qaim-stat-group">
+                        <span class="qaim-label">Spent in Gym</span>
+                        <span class="qaim-value" id="qaim-spent">---</span>
+                    </div>
+                    <div class="qaim-stat-group">
+                        <span class="qaim-label">Remaining E</span>
+                        <span class="qaim-value" id="qaim-rem">---</span>
+                    </div>
+                </div>
+            `;
+            controlsHTML = `
+                <div class="qaim-badge" id="qaim-api-badge">API</div>
+                <div class="qaim-badge" id="qaim-music-badge">Music Store</div>
+                <div class="qaim-settings-icon" id="qaim-settings-trigger" title="Settings">⚙</div>
+            `;
+        }
+
         const barHTML = `
             <div class="qaim-gym-bar" id="QaimGymBar">
-                <div class="qaim-bar-title">
-                    <span>${gymName}</span>
-                    <span class="qaim-bar-values">
-                        <span class="qaim-highlight" id="qaim-rem">Loading...</span> / <span id="qaim-tot">...</span> E
-                    </span>
-                </div>
-
-                <div class="qaim-bar-controls">
-                    <div class="qaim-badge" id="qaim-api-badge">API</div>
-                    <div class="qaim-badge" id="qaim-music-badge">Music Store</div>
-                    <div class="qaim-days" id="qaim-days">...</div>
-                    <div class="qaim-settings-icon" id="qaim-settings-trigger" title="Enter API Key">⚙</div>
-                </div>
-
+                ${contentHTML}
+                <div class="qaim-bar-controls">${controlsHTML}</div>
                 <div class="qaim-tooltip" id="qaim-tooltip">
                     <div style="margin-bottom:5px; font-size:11px; color:#aaa;">Enter Public API Key:</div>
                     <input type="text" class="qaim-input" id="qaim-api-input" value="${apiKey}" placeholder="Key...">
@@ -227,61 +190,116 @@
             </div>
         `;
 
-        if (insertTarget.length) {
-            insertTarget.after(barHTML);
-        } else {
-            buttonEl.parent().append(barHTML);
+        // Insert
+        const gymsListContainer = buttonEl.closest('div[class*="gymsList"]'); 
+        const insertTarget = gymsListContainer.length ? gymsListContainer : buttonEl.parent().parent();
+        
+        if (insertTarget.length) insertTarget.after(barHTML);
+        else buttonEl.parent().append(barHTML);
+
+        // Handlers
+        $('#qaim-settings-trigger').off('click').on('click', function(e) { e.stopPropagation(); $('#qaim-tooltip').fadeToggle(150); });
+        $(document).off('click.qaim').on('click.qaim', function(e) { if (!$(e.target).closest('#qaim-tooltip, #qaim-settings-trigger').length) $('#qaim-tooltip').fadeOut(150); });
+        $('#qaim-save-btn').off('click').on('click', function() { GM_setValue('qaim_torn_api_key', $('#qaim-api-input').val().trim()); location.reload(); });
+
+        // Update Function
+        if (apiKey) {
+            
+            setupEnergyObserver();
+
+            const updateDisplay = () => {
+                if (totalReq === 0) {
+                    $('#qaim-req').text("N/A");
+                    $('#qaim-spent').text("Specialist");
+                    $('#qaim-rem').text("Stats Based");
+                    return;
+                }
+
+                let req = totalReq;
+                if (userData.hasMusicStore) req = Math.round(req / userData.perkMultiplier);
+
+                // Read current Percentage from DOM
+                const percentageEl = Array.from(document.querySelectorAll('[class*="percentage"]')).find(el => el.innerText.includes('%'));
+                const currentPct = percentageEl ? parseFloat(percentageEl.innerText.replace("%", "")) : 0;
+
+                // Base Range Calc from Percentage
+                const baseMaxRem = Math.round(req * ((100 - currentPct) / 100));
+                const baseMinRem = Math.round(req * ((100 - (currentPct + 1)) / 100));
+
+                const realMinRem = Math.max(0, baseMinRem - localSpentOffset);
+                const realMaxRem = Math.max(0, baseMaxRem - localSpentOffset);
+
+                const minSpent = req - realMaxRem;
+                const maxSpent = req - realMinRem;
+
+                $('#qaim-req').text(formatNum(req));
+                $('#qaim-spent').text(`${formatNum(minSpent)} - ${formatNum(maxSpent)}`);
+                $('#qaim-rem').text(`${formatNum(realMinRem)} - ${formatNum(realMaxRem)}`);
+                
+                // Visual feedback if offset exists
+                if (localSpentOffset > 0) $('.qaim-value').addClass('updated');
+                else $('.qaim-value').removeClass('updated');
+
+                if (apiKey) $('#qaim-api-badge').addClass('active');
+                if (userData.hasMusicStore) $('#qaim-music-badge').addClass('active');
+            };
+
+            // Initial call
+            updateDisplay();
+            fetchApiData(updateDisplay);
+
+            window.qaimUpdateDisplay = updateDisplay;
         }
-
-        const gymPercentage = parseFloat(percentageEl.innerText.replace("%", ""));
-
-        function updateDisplay() {
-            if (totalReq === 0) {
-                $('#qaim-rem').text("Specialist");
-                $('#qaim-tot').text("N/A");
-                return;
-            }
-
-            let req = totalReq;
-            if (userData.hasMusicStore) req = Math.round(req / userData.perkMultiplier);
-
-            const remaining = Math.max(0, Math.round(req * ((100 - gymPercentage) / 100)));
-            const days = (remaining / userData.dailyEnergy).toFixed(1);
-
-            $('#qaim-rem').text(formatNum(remaining));
-            $('#qaim-tot').text(formatNum(req));
-            $('#qaim-days').text(`~${days} days left`);
-
-            if (apiKey) $('#qaim-api-badge').addClass('active');
-            if (userData.hasMusicStore) $('#qaim-music-badge').addClass('active');
-        }
-
-        $('#qaim-settings-trigger').on('click', function(e) {
-            e.stopPropagation();
-            $('#qaim-tooltip').fadeToggle(150);
-        });
-
-        $(document).on('click', function(e) {
-            if (!$(e.target).closest('#qaim-tooltip, #qaim-settings-trigger').length) {
-                $('#qaim-tooltip').fadeOut(150);
-            }
-        });
-
-        $('#qaim-save-btn').on('click', function() {
-            const newKey = $('#qaim-api-input').val().trim();
-            GM_setValue('qaim_torn_api_key', newKey);
-            location.reload();
-        });
-
-        updateDisplay();
-        if (apiKey) fetchApiData(updateDisplay);
     }
 
-    const interval = setInterval(() => {
+
+    function setupEnergyObserver() {
+
+        const sidebar = document.getElementById('sidebarroot') || document.body;
+        
+        // Helper to extract current energy
+        const getEnergy = () => {
+            const energyEl = $(sidebar).find('p[class*="bar-value"]').filter((i, el) => $(el).text().includes('/'));
+            if (energyEl.length) {
+                const txt = energyEl.first().text().split('/')[0];
+                return parseInt(txt, 10);
+            }
+            return -1;
+        };
+
+        // Initialize state
+        lastEnergyVal = getEnergy();
+
+        // Observer
+        const observer = new MutationObserver(() => {
+            const currentE = getEnergy();
+            if (currentE !== -1 && lastEnergyVal !== -1) {
+                if (currentE < lastEnergyVal) {
+                    const diff = lastEnergyVal - currentE;
+            
+                    if (diff > 0 && diff <= 1000) {
+                        localSpentOffset += diff;
+                        log(`Detected training! Spent ${diff}E. Total local offset: ${localSpentOffset}`);
+                        if (window.qaimUpdateDisplay) window.qaimUpdateDisplay();
+                    }
+                } else if (currentE > lastEnergyVal) {
+                 
+                }
+            }
+            lastEnergyVal = currentE;
+        });
+
+        observer.observe(sidebar, { childList: true, subtree: true, characterData: true });
+    }
+
+    // --- Persistent Polling ---
+    setInterval(() => {
         if ($('button[class*="gymButton"]').length > 0) {
-            clearInterval(interval);
-            init();
+            if ($('#QaimGymBar').length === 0) {
+                localSpentOffset = 0; 
+                init();
+            }
         }
-    }, 200);
+    }, 500);
 
 })();
